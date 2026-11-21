@@ -1,0 +1,92 @@
+name: Render issue 1930
+on:
+  push:
+    branches: ['evidence/1930']
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - version: before
+            sha: 74a95c3725633311ca669e189ce70b971c89a8c2
+          - version: after
+            sha: bb32384fae86d94763a963f6022bc3f59549e8b3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - name: Render chart with the selected painter revision
+        shell: bash
+        run: |
+          cat > test/visual_1930_test.dart <<'DART'
+          import 'dart:convert';
+          import 'dart:io';
+          import 'dart:ui' as ui;
+          
+          import 'package:fl_chart/fl_chart.dart';
+          import 'package:fl_chart/src/chart/base/base_chart/base_chart_painter.dart';
+          import 'package:fl_chart/src/chart/line_chart/line_chart_painter.dart';
+          import 'package:fl_chart/src/utils/canvas_wrapper.dart';
+          import 'package:flutter/services.dart';
+          import 'package:flutter/widgets.dart';
+          import 'package:flutter_test/flutter_test.dart';
+          
+          void main() {
+            testWidgets('renders labels where extra lines cross', (tester) async {
+              await tester.pumpWidget(const SizedBox());
+              final context = tester.element(find.byType(SizedBox));
+              await tester.runAsync(() async {
+                final font = await File('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf').readAsBytes();
+                await (FontLoader('Evidence')..addFont(Future.value(ByteData.sublistView(font)))).load();
+                const size = Size(320, 128);
+                const ink = Color(0xFF132238);
+                const coral = Color(0xFFED794C);
+                const style = TextStyle(fontFamily: 'Evidence', fontSize: 22, color: ink);
+                final data = LineChartData(
+                  minX: 0, maxX: 10, minY: 0, maxY: 10,
+                  extraLinesData: ExtraLinesData(
+                    horizontalLines: [
+                      HorizontalLine(y: 3, color: ink, strokeWidth: 2,
+                        label: HorizontalLineLabel(show: true, alignment: Alignment.topRight,
+                          style: style, labelResolver: (_) => 'Current depth')),
+                    ],
+                    verticalLines: [
+                      VerticalLine(x: 4.8, color: coral, strokeWidth: 5,
+                        label: VerticalLineLabel(show: true, alignment: Alignment.topRight,
+                          style: style, labelResolver: (_) => 'Limit')),
+                      VerticalLine(x: 5.5, color: coral, strokeWidth: 7),
+                      VerticalLine(x: 7.15, color: coral, strokeWidth: 7),
+                      VerticalLine(x: 8.8, color: coral, strokeWidth: 7),
+                    ],
+                  ),
+                );
+                final recorder = ui.PictureRecorder();
+                final canvas = Canvas(recorder)..drawColor(const Color(0xFFFFFFFF), BlendMode.src);
+                LineChartPainter().drawExtraLines(context, CanvasWrapper(canvas, size),
+                  PaintHolder(data, data, TextScaler.noScaling));
+                final picture = recorder.endRecording();
+                final image = await picture.toImage(size.width.toInt(), size.height.toInt());
+                final png = await image.toByteData(format: ui.ImageByteFormat.png);
+                expect(png, isNotNull);
+                print('CHARTPNG=${base64Encode(png!.buffer.asUint8List())}');
+                image.dispose();
+                picture.dispose();
+              });
+            });
+          }
+          DART
+          flutter test --no-pub --reporter expanded test/visual_1930_test.dart | tee "$RUNNER_TEMP/render.log"
+          sed -n 's/^CHARTPNG=//p' "$RUNNER_TEMP/render.log" | base64 -d > ${{ matrix.version }}.png
+          test -s ${{ matrix.version }}.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chart-${{ matrix.version }}
+          path: ${{ matrix.version }}.png
