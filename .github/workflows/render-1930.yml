@@ -13,7 +13,7 @@ jobs:
           - version: before
             sha: 74a95c3725633311ca669e189ce70b971c89a8c2
           - version: after
-            sha: bb32384fae86d94763a963f6022bc3f59549e8b3
+            sha: a7aac88b5644a87ee35991ed596613ea1f1a688f
     steps:
       - uses: actions/checkout@v4
         with:
